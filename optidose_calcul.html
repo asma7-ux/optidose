@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calcul de dose OptiDose</title>
+<style>
+  :root{
+    --fond:#F3F0EF;
+    --encre:#26251F;
+    --encre-douce:#6B6860;
+    --trait:#D5D0CB;
+    --vigne:#7A8B1F;
+    --vigne-clair:#C3D02E;
+    --actif:#1C5FA8;
+    --alerte:#9A3B12;
+    --blanc:#FFFFFF;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:20px 4px;
+    font-family:"Avenir Next","Segoe UI",system-ui,-apple-system,sans-serif;
+    color:var(--encre);background:transparent;
+    font-size:15px;line-height:1.5;
+  }
+  .grille-saisie{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+    gap:18px 22px;margin-bottom:26px;
+  }
+  label{display:block;font-size:13.5px;color:var(--encre-douce);margin-bottom:6px}
+  input[type=number],select{
+    width:100%;padding:9px 11px;font-size:15px;font-family:inherit;color:var(--encre);
+    background:var(--blanc);border:1px solid var(--trait);border-radius:3px;
+  }
+  input[type=number]:focus,select:focus{outline:2px solid var(--actif);outline-offset:-1px;border-color:var(--actif)}
+  input.invalide{border-color:var(--alerte);background:#FDF4F0}
+
+  .risques{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:18px 30px;margin-bottom:24px}
+  .segment{display:flex;gap:0}
+  .segment button{
+    flex:1;padding:8px 4px;font:inherit;font-size:14px;cursor:pointer;
+    background:var(--blanc);color:var(--encre);border:1px solid var(--trait);
+    border-right-width:0;transition:background .12s,color .12s;
+  }
+  .segment button:first-child{border-radius:3px 0 0 3px}
+  .segment button:last-child{border-right-width:1px;border-radius:0 3px 3px 0}
+  .segment button[aria-pressed=true]{background:var(--actif);color:#fff;border-color:var(--actif)}
+  .segment button:focus-visible{outline:2px solid var(--encre);outline-offset:1px;z-index:1}
+
+  .resultat{border-top:1px solid var(--trait);padding-top:22px}
+  .trv{margin:0 0 20px}
+  .trv-valeur{font-size:34px;font-weight:600;letter-spacing:-.01em;line-height:1.1}
+  .trv-unite{font-size:16px;font-weight:400;color:var(--encre-douce);margin-left:4px}
+  .trv-legende{font-size:13px;color:var(--encre-douce);margin-top:3px}
+
+  .doses{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}
+  .dose{
+    background:var(--blanc);border:1px solid var(--trait);
+    border-left:4px solid var(--vigne);border-radius:3px;padding:14px 16px;
+  }
+  .dose-titre{font-size:13.5px;color:var(--encre-douce);margin-bottom:2px}
+  .dose-valeur{font-size:27px;font-weight:600;line-height:1.15}
+  .dose-detail{font-size:12.5px;color:var(--encre-douce);margin-top:4px}
+
+  .message{
+    background:#FDF4F0;border-left:4px solid var(--alerte);border-radius:3px;
+    padding:14px 16px;color:var(--alerte);font-size:14px;
+  }
+  .message strong{display:block;margin-bottom:3px;font-weight:600}
+  .attente{color:var(--encre-douce);font-size:14px;font-style:italic}
+  [hidden]{display:none !important}
+  @media (prefers-reduced-motion:reduce){*{transition:none !important}}
+</style>
+</head>
+<body>
+
+<div class="grille-saisie">
+  <div>
+    <label for="h">Hauteur de feuillage (m)</label>
+    <input type="number" id="h" step="0.01" min="0" placeholder="ex. 1,20" inputmode="decimal">
+  </div>
+  <div>
+    <label for="l">Largeur de feuillage (m)</label>
+    <input type="number" id="l" step="0.01" min="0" placeholder="ex. 0,45" inputmode="decimal">
+  </div>
+  <div>
+    <label for="e">Espacement inter-rang (m)</label>
+    <input type="number" id="e" step="0.01" min="0" placeholder="ex. 2,00" inputmode="decimal">
+  </div>
+  <div>
+    <label for="stade">Stade phénologique</label>
+    <select id="stade"></select>
+  </div>
+</div>
+
+<div class="risques">
+  <div>
+    <label id="lbl-mildiou">Risque mildiou estimé</label>
+    <div class="segment" id="seg-mildiou" role="group" aria-labelledby="lbl-mildiou"></div>
+  </div>
+  <div>
+    <label id="lbl-oidium">Risque oïdium estimé</label>
+    <div class="segment" id="seg-oidium" role="group" aria-labelledby="lbl-oidium"></div>
+  </div>
+</div>
+
+<div class="resultat" aria-live="polite">
+  <p class="attente" id="attente">Renseignez la hauteur, la largeur et l'espacement pour obtenir le TRV et les doses.</p>
+
+  <div id="bloc-erreur" hidden>
+    <div class="message">
+      <strong id="erreur-titre"></strong>
+      <span id="erreur-texte"></span>
+    </div>
+  </div>
+
+  <div id="bloc-resultat" hidden>
+    <div class="trv">
+      <div><span class="trv-valeur" id="trv-valeur"></span><span class="trv-unite">m³/ha</span></div>
+      <div class="trv-legende" id="trv-legende"></div>
+    </div>
+    <div class="doses">
+      <div class="dose">
+        <div class="dose-titre">Dose mildiou</div>
+        <div class="dose-valeur" id="dose-mildiou"></div>
+        <div class="dose-detail" id="detail-mildiou"></div>
+      </div>
+      <div class="dose">
+        <div class="dose-titre">Dose oïdium</div>
+        <div class="dose-valeur" id="dose-oidium"></div>
+        <div class="dose-detail" id="detail-oidium"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const REGLES = {"bornes":[[1,750],[750,1200],[1200,1500],[1500,2000],[2000,2500],[2500,3000],[3000,3500],[3500,4000],[4000,4500],[4500,5000],[5000,5500],[5500,6000],[6000,9999999]],"doses":{"1":{"mildiou":{"faible":[20,20,30,30,30,30,30,30,30,30,30,30,30],"fort":[30,30,50,50,50,50,50,50,50,50,50,50,50],"moyen":[20,20,30,30,30,30,30,30,30,30,30,30,30]},"oidium":{"faible":[30,30,30,30,30,30,30,30,30,30,30,30,30],"fort":[30,30,50,50,50,50,50,50,50,50,50,50,50],"moyen":[30,30,30,30,30,30,30,30,30,30,30,30,30]}},"2":{"mildiou":{"faible":[20,20,30,30,30,30,30,30,30,30,30,30,30],"fort":[30,30,50,50,50,50,50,50,50,50,50,50,50],"moyen":[20,20,30,30,30,30,30,30,30,30,30,30,30]},"oidium":{"faible":[30,30,30,30,30,30,30,30,30,30,30,30,30],"fort":[30,30,50,50,50,50,50,50,50,50,50,50,50],"moyen":[30,30,30,30,30,30,30,30,30,30,30,30,30]}},"3":{"mildiou":{"faible":[20,20,30,30,30,30,30,30,30,30,30,30,30],"fort":[30,30,50,50,50,50,50,50,50,50,50,50,50],"moyen":[20,20,30,30,30,30,30,30,30,30,30,30,30]},"oidium":{"faible":[30,30,30,30,30,30,30,30,30,30,30,30,30],"fort":[30,30,50,50,50,50,50,50,50,50,50,50,50],"moyen":[30,30,30,30,30,30,30,30,30,30,30,30,30]}},"4":{"mildiou":{"faible":[20,20,30,30,30,30,30,30,30,30,30,30,30],"fort":[30,30,50,50,50,50,50,50,50,50,50,50,50],"moyen":[20,20,30,30,30,30,30,30,30,30,30,30,30]},"oidium":{"faible":[30,30,30,30,30,30,30,30,30,30,30,30,30],"fort":[30,30,50,50,50,50,50,50,50,50,50,50,50],"moyen":[30,30,30,30,30,30,30,30,30,30,30,30,30]}},"5":{"mildiou":{"faible":[20,20,30,30,30,30,30,30,30,30,30,30,30],"fort":[30,30,50,50,50,50,50,50,50,50,50,50,50],"moyen":[20,20,30,30,30,30,30,30,30,30,30,30,30]},"oidium":{"faible":[30,30,30,30,30,30,30,30,30,30,30,30,30],"fort":[30,30,50,50,50,50,50,50,50,50,50,50,50],"moyen":[30,30,30,30,30,30,30,30,30,30,30,30,30]}},"6":{"mildiou":{"faible":[20,20,30,30,30,30,30,30,30,30,30,30,30],"fort":[30,30,50,50,50,50,50,50,50,50,50,50,50],"moyen":[20,20,30,30,30,30,30,30,30,30,30,30,30]},"oidium":{"faible":[30,30,30,30,30,30,30,30,30,30,30,30,30],"fort":[30,30,50,50,50,50,50,50,50,50,50,50,50],"moyen":[30,30,30,30,30,30,30,30,30,30,30,30,30]}},"7":{"mildiou":{"faible":[20,20,30,30,30,30,30,30,30,30,30,30,30],"fort":[30,30,50,50,50,50,50,50,50,50,50,50,50],"moyen":[20,20,30,30,30,30,30,30,30,30,30,30,30]},"oidium":{"faible":[30,30,30,30,30,30,30,30,30,30,30,30,30],"fort":[30,30,50,50,50,50,50,50,50,50,50,50,50],"moyen":[30,30,30,30,30,30,30,30,30,30,30,30,30]}},"8":{"mildiou":{"faible":[20,20,30,30,30,30,30,30,30,30,30,30,30],"fort":[30,30,50,50,50,50,50,50,50,50,50,50,50],"moyen":[20,20,30,30,30,30,30,30,30,30,30,30,30]},"oidium":{"faible":[30,30,30,30,30,30,30,30,30,30,30,30,30],"fort":[30,30,50,50,50,50,50,50,50,50,50,50,50],"moyen":[30,30,30,30,30,30,30,30,30,30,30,30,30]}},"9":{"mildiou":{"faible":[20,20,30,30,30,30,30,30,30,30,30,30,30],"fort":[30,30,50,50,50,50,50,50,50,50,50,50,50],"moyen":[20,20,30,30,30,30,30,30,30,30,30,30,30]},"oidium":{"faible":[30,30,30,30,30,30,30,30,30,30,30,30,30],"fort":[30,30,50,50,50,50,50,50,50,50,50,50,50],"moyen":[30,30,30,30,30,30,30,30,30,30,30,30,30]}},"10":{"mildiou":{"faible":[20,20,30,30,30,30,30,30,30,30,30,30,30],"fort":[40,50,60,60,60,60,60,60,60,60,60,60,60],"moyen":[30,30,40,40,40,40,40,40,40,40,40,40,40]},"oidium":{"faible":[30,30,30,30,30,30,30,30,30,30,30,30,30],"fort":[40,50,60,60,60,60,60,60,60,60,60,60,60],"moyen":[30,30,40,40,40,40,40,40,40,40,40,40,40]}},"11":{"mildiou":{"faible":[20,20,30,30,30,30,30,30,30,30,30,30,30],"fort":[40,50,60,60,60,60,60,60,60,60,60,60,60],"moyen":[30,30,40,40,40,40,40,40,40,40,40,40,40]},"oidium":{"faible":[30,30,30,30,30,30,30,30,30,30,30,30,30],"fort":[40,50,60,60,60,60,60,60,60,60,60,60,60],"moyen":[30,30,40,40,40,40,40,40,40,40,40,40,40]}},"12":{"mildiou":{"faible":[20,20,30,30,30,30,30,30,30,30,30,30,30],"fort":[40,50,60,60,60,60,60,60,60,60,60,60,60],"moyen":[30,30,40,40,40,40,40,40,40,40,40,40,40]},"oidium":{"faible":[30,30,40,40,40,40,40,40,40,40,40,40,40],"fort":[40,50,60,60,60,60,60,60,60,60,60,60,60],"moyen":[30,30,40,40,40,40,40,40,40,40,40,40,40]}},"13":{"mildiou":{"faible":[20,20,30,30,30,30,30,30,30,30,30,30,30],"fort":[40,50,60,60,60,60,60,60,60,60,60,60,60],"moyen":[30,30,40,40,40,40,40,40,40,40,40,40,40]},"oidium":{"faible":[30,30,40,40,40,40,40,40,40,40,40,40,40],"fort":[40,50,60,60,60,60,60,60,60,60,60,60,60],"moyen":[30,30,40,40,40,40,40,40,40,40,40,40,40]}},"14":{"mildiou":{"faible":[20,20,30,30,30,30,30,30,30,30,30,30,30],"fort":[50,50,60,60,60,60,60,60,60,60,60,60,60],"moyen":[30,30,40,40,40,40,40,40,40,40,40,40,40]},"oidium":{"faible":[30,30,40,50,50,50,50,50,50,50,50,50,50],"fort":[50,50,60,60,60,60,60,60,60,60,60,60,60],"moyen":[30,30,40,50,50,50,50,50,50,50,50,50,50]}},"15":{"mildiou":{"faible":[20,20,30,30,30,30,30,30,30,30,30,30,30],"fort":[50,50,60,60,60,60,60,60,60,60,60,60,60],"moyen":[40,40,40,40,40,40,40,40,40,40,40,40,40]},"oidium":{"faible":[40,40,50,50,50,50,50,50,50,50,50,50,50],"fort":[50,50,60,60,60,60,60,60,60,60,60,60,60],"moyen":[40,40,50,50,50,50,50,50,50,50,50,50,50]}},"16":{"mildiou":{"faible":[30,30,30,50,50,50,50,50,50,50,50,50,50],"fort":[60,60,70,70,70,70,70,70,70,70,70,70,70],"moyen":[40,40,40,50,50,50,50,50,50,50,50,50,50]},"oidium":{"faible":[40,50,50,50,50,50,50,50,50,50,50,50,50],"fort":[60,60,70,70,70,70,70,70,70,70,70,70,70],"moyen":[40,50,50,50,50,50,50,50,50,50,50,50,50]}},"17":{"mildiou":{"faible":[30,30,30,50,50,50,50,50,50,50,50,50,50],"fort":[70,70,70,80,80,80,80,80,80,80,80,80,80],"moyen":[50,50,50,60,60,60,60,60,60,60,60,60,60]},"oidium":{"faible":[50,60,60,60,60,60,60,60,60,60,60,60,60],"fort":[70,70,70,80,80,80,80,80,80,80,80,80,80],"moyen":[50,60,60,60,60,60,60,60,60,60,60,60,60]}},"18":{"mildiou":{"faible":[40,40,50,50,60,60,70,70,70,70,70,70,70],"fort":[70,70,70,80,90,90,90,100,100,100,100,100,100],"moyen":[50,50,60,60,70,70,80,80,80,80,80,80,80]},"oidium":{"faible":[50,60,60,60,70,70,80,80,80,80,80,80,80],"fort":[70,70,70,80,90,90,90,100,100,100,100,100,100],"moyen":[50,60,60,60,70,70,80,80,80,80,80,80,80]}},"19":{"mildiou":{"faible":[50,50,50,50,60,60,70,70,70,70,70,70,70],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,60,70,70,80,80,80,80,80,80,80]},"oidium":{"faible":[60,60,60,70,70,70,80,80,80,80,80,80,80],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,70,70,70,80,80,80,80,80,80,80]}},"20":{"mildiou":{"faible":[50,50,50,50,60,60,70,70,70,70,70,70,70],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,60,70,70,80,80,80,80,80,80,80]},"oidium":{"faible":[60,60,70,70,70,80,80,80,80,80,80,80,80],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,70,70,70,80,80,80,80,80,80,80,80]}},"21":{"mildiou":{"faible":[50,50,50,50,60,60,70,70,70,70,70,70,70],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,60,70,70,80,80,80,80,80,80,80]},"oidium":{"faible":[60,60,60,70,70,70,80,80,80,80,80,80,80],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,70,70,70,80,80,80,80,80,80,80]}},"22":{"mildiou":{"faible":[50,50,50,50,60,60,70,70,70,70,70,70,70],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,60,70,70,80,80,80,80,80,80,80]},"oidium":{"faible":[60,60,60,70,70,70,80,80,80,80,80,80,80],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,70,70,70,80,80,80,80,80,80,80]}},"23":{"mildiou":{"faible":[50,50,50,50,60,60,70,70,70,70,80,80,80],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,60,70,70,80,80,80,90,90,90,90]},"oidium":{"faible":[60,60,60,70,70,70,80,80,80,90,90,90,90],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,70,70,70,80,80,80,90,90,90,90]}},"24":{"mildiou":{"faible":[50,50,50,50,60,60,70,70,70,70,80,80,80],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,60,70,70,80,80,80,90,90,90,90]},"oidium":{"faible":[60,60,60,70,70,70,80,80,80,90,90,90,90],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,70,70,70,80,80,80,90,90,90,90]}},"25":{"mildiou":{"faible":[50,50,50,50,60,60,70,70,70,70,80,80,80],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,60,70,70,80,80,80,90,90,90,90]},"oidium":{"faible":[60,60,60,70,70,70,80,80,80,90,90,90,90],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,70,70,70,80,80,80,90,90,90,90]}},"26":{"mildiou":{"faible":[50,50,50,50,60,60,70,70,70,70,80,80,80],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,60,70,70,80,80,80,90,90,90,90]},"oidium":{"faible":[60,60,60,70,70,70,80,80,80,90,90,90,90],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,70,70,70,80,80,80,90,90,90,90]}},"27":{"mildiou":{"faible":[50,50,50,50,60,60,70,70,70,70,80,80,80],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,60,70,70,80,80,80,90,90,90,90]},"oidium":{"faible":[60,60,60,70,70,70,80,80,80,90,90,90,90],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,70,70,70,80,80,80,90,90,90,90]}},"28":{"mildiou":{"faible":[50,50,50,50,60,60,60,70,70,70,80,80,80],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,60,70,70,80,80,80,90,90,90,90]},"oidium":{"faible":[60,60,60,70,70,70,80,80,80,90,90,90,90],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,70,70,70,80,80,80,90,90,90,90]}},"29":{"mildiou":{"faible":[50,50,50,50,60,60,60,70,70,70,80,80,80],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,60,70,70,80,80,80,90,90,90,90]},"oidium":{"faible":[60,60,60,60,70,70,80,80,80,90,90,90,90],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,60,70,70,80,80,80,90,90,90,90]}},"30":{"mildiou":{"faible":[50,50,50,50,60,60,60,70,70,70,80,80,80],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,60,70,70,80,80,80,90,90,90,90]},"oidium":{"faible":[60,60,60,60,70,70,80,80,80,90,90,90,90],"fort":[80,80,80,80,90,90,90,100,100,100,100,100,100],"moyen":[60,60,60,60,70,70,80,80,80,90,90,90,90]}},"31":{"mildiou":{"faible":[40,40,40,40,50,50,60,60,60,70,70,70,70],"fort":[70,70,70,70,80,80,80,100,100,100,100,100,100],"moyen":[50,50,50,50,70,70,70,80,80,90,90,90,90]},"oidium":{"faible":[50,50,50,60,70,70,70,80,80,90,90,90,90],"fort":[70,70,70,70,80,80,80,100,100,100,100,100,100],"moyen":[50,50,50,60,70,70,70,80,80,90,90,90,90]}},"32":{"mildiou":{"faible":[40,40,40,40,50,50,50,60,60,60,60,60,60],"fort":[70,70,70,70,80,80,80,90,90,90,100,100,100],"moyen":[50,50,50,50,60,70,70,80,80,80,90,90,90]},"oidium":{"faible":[40,40,40,40,50,50,50,60,60,60,60,60,60],"fort":[70,70,70,70,80,80,80,90,90,90,100,100,100],"moyen":[50,50,50,50,60,70,70,80,80,80,90,90,90]}},"33":{"mildiou":{"faible":[30,30,30,30,40,50,50,50,50,50,50,50,50],"fort":[70,70,70,70,70,80,80,90,90,90,90,90,90],"moyen":[40,40,40,50,60,70,70,70,70,80,80,80,80]},"oidium":{"faible":[30,30,30,30,40,50,50,50,50,50,50,50,50],"fort":[70,70,70,70,70,80,80,90,90,90,90,90,90],"moyen":[40,40,40,50,60,70,70,70,70,80,80,80,80]}},"34":{"mildiou":{"faible":[30,30,30,30,30,40,40,50,50,50,50,50,50],"fort":[60,60,60,60,60,70,80,80,80,80,80,80,80],"moyen":[40,40,40,40,50,60,70,70,70,70,70,70,70]},"oidium":{"faible":[30,30,30,30,40,40,40,50,50,50,50,50,50],"fort":[60,60,60,60,60,70,70,80,80,80,80,80,80],"moyen":[40,40,40,40,50,60,60,60,70,70,70,70,70]}},"35":{"mildiou":{"faible":[20,20,20,30,30,40,40,50,50,50,50,50,50],"fort":[50,50,50,50,60,70,80,80,80,80,80,80,80],"moyen":[30,30,30,40,40,50,50,60,60,60,60,60,60]},"oidium":{"faible":[30,30,30,30,30,40,40,50,50,50,50,50,50],"fort":[60,60,60,60,60,70,70,80,80,80,80,80,80],"moyen":[40,40,40,40,40,50,50,60,60,60,60,60,60]}},"36":{"mildiou":{"faible":[20,20,20,30,30,40,40,50,50,50,50,50,50],"fort":[40,40,40,40,50,60,70,70,70,70,70,70,70],"moyen":[30,30,30,40,40,50,50,60,60,60,60,60,60]},"oidium":{"faible":[30,30,30,30,30,40,40,50,50,50,50,50,50],"fort":[60,60,60,60,60,70,70,70,70,70,70,70,70],"moyen":[40,40,40,40,40,50,50,60,60,60,60,60,60]}},"37":{"mildiou":{"faible":[20,20,20,30,30,40,40,50,50,50,50,50,50],"fort":[40,40,40,40,50,60,60,70,70,70,70,70,70],"moyen":[30,30,30,40,40,50,50,60,60,60,60,60,60]},"oidium":{"faible":[30,30,30,30,30,40,40,50,50,50,50,50,50],"fort":[50,60,60,60,60,60,60,70,70,70,70,70,70],"moyen":[40,40,40,40,40,50,50,60,60,60,60,60,60]}},"38":{"mildiou":{"faible":[20,20,20,30,30,40,40,50,50,50,50,50,50],"fort":[40,40,40,40,50,60,60,70,70,70,70,70,70],"moyen":[30,30,30,40,40,50,50,60,60,60,60,60,60]},"oidium":{"faible":[30,30,30,30,30,40,40,50,50,50,50,50,50],"fort":[50,50,50,50,60,60,60,70,70,70,70,70,70],"moyen":[40,40,40,40,40,50,50,60,60,60,60,60,60]}}},"stades":[[1,"Repos d'hiver (A)"],[2,"Début gonflement"],[3,"Bourgeon dans le coton (B)"],[4,"Bourre nettement visible"],[5,"Pointe verte (C)"],[6,"Eclatement bourgeon (D)"],[7,"1 feuille étalée"],[8,"1-2 feuilles étalées"],[9,"2-3 feuilles étalées (E)"],[10,"3-4 feuilles étalées"],[11,"4-5 feuilles étalées"],[12,"5-6 feuilles étalées - g vis (F)"],[13,"6-7 feuilles étalées"],[14,"7-8 feuilles étalées"],[15,"bf agglomérés (G)"],[16,"8-9 feuilles"],[17,"bf séparés (H)"],[18,"11-12 feuilles"],[19,"Tout début floraison"],[20,"1-10 % floraison"],[21,"10-25 % floraison"],[22,"25-50 % floraison"],[23,"Pleine floraison (50 %) (I)"],[24,"50-80 % floraison"],[25,"Fin floraison (80 %)"],[26,"> 80 % floraison"],[27,"Nouaison (J)"],[28,"Grains 1-2 mm"],[29,"Grains de plomb (2-3 mm)"],[30,"Grains 3-4 mm"],[31,"Grains de pois (4-5 mm) (K)"],[32,"Grains 5-6 mm"],[33,"Fermeture (L)"],[34,"1ères baies vérées"],[35,"Début véraison"],[36,"Mi-véraison (50 %) (M)"],[37,"Fin véraison"],[38,"Début maturation"]]};
+
+// Domaine agronomique admissible (mètres)
+const LIMITES = { h:[0.05, 3.5], l:[0.05, 2.5], e:[0.05, 5.0] };
+const NIVEAUX = ["faible","moyen","fort"];
+const etat = { mildiou:"faible", oidium:"faible" };
+
+const $ = id => document.getElementById(id);
+
+// --- Construction de l'interface ---
+const selStade = $("stade");
+REGLES.stades.forEach(([code, libelle]) => {
+  const o = document.createElement("option");
+  o.value = code; o.textContent = libelle;
+  selStade.appendChild(o);
+});
+
+function construireSegment(conteneur, maladie){
+  NIVEAUX.forEach(niveau => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = niveau.charAt(0).toUpperCase() + niveau.slice(1);
+    b.setAttribute("aria-pressed", String(etat[maladie] === niveau));
+    b.addEventListener("click", () => {
+      etat[maladie] = niveau;
+      [...conteneur.children].forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+      recalculer();
+    });
+    conteneur.appendChild(b);
+  });
+}
+construireSegment($("seg-mildiou"), "mildiou");
+construireSegment($("seg-oidium"), "oidium");
+
+// --- Logique métier ---
+function trancheDe(trv){
+  for (let i = 0; i < REGLES.bornes.length; i++){
+    const [min, max] = REGLES.bornes[i];
+    if (trv >= min && trv < max) return i;
+  }
+  return -1;
+}
+
+function doseDe(stade, maladie, risque, index){
+  const parStade = REGLES.doses[String(stade)];
+  if (!parStade || !parStade[maladie] || !parStade[maladie][risque]) return null;
+  const v = parStade[maladie][risque][index];
+  return (v === undefined) ? null : v;
+}
+
+function formater(n){
+  return n.toLocaleString("fr-FR", { maximumFractionDigits:0 });
+}
+
+function recalculer(){
+  const champs = { h:$("h"), l:$("l"), e:$("e") };
+  const vals = {};
+  let vide = false, horsDomaine = null;
+
+  for (const cle of ["h","l","e"]){
+    const brut = champs[cle].value.trim();
+    champs[cle].classList.remove("invalide");
+    if (brut === ""){ vide = true; continue; }
+    const v = parseFloat(brut.replace(",", "."));
+    if (!isFinite(v)){ vide = true; continue; }
+    vals[cle] = v;
+    const [bas, haut] = LIMITES[cle];
+    if (v < bas || v > haut){ horsDomaine = cle; champs[cle].classList.add("invalide"); }
+  }
+
+  const afficher = (etatAffichage) => {
+    $("attente").hidden = etatAffichage !== "attente";
+    $("bloc-erreur").hidden = etatAffichage !== "erreur";
+    $("bloc-resultat").hidden = etatAffichage !== "ok";
+  };
+
+  if (vide){ afficher("attente"); return; }
+
+  if (horsDomaine !== null){
+    const noms = { h:"La hauteur de feuillage", l:"La largeur de feuillage", e:"L'espacement inter-rang" };
+    const [bas, haut] = LIMITES[horsDomaine];
+    $("erreur-titre").textContent = "Valeur hors du domaine admissible";
+    $("erreur-texte").textContent =
+      noms[horsDomaine] + " doit être comprise entre " +
+      bas.toLocaleString("fr-FR") + " m et " + haut.toLocaleString("fr-FR") +
+      " m. Vérifiez la mesure saisie.";
+    afficher("erreur");
+    return;
+  }
+
+  const trv = 10000 * vals.h * vals.l / vals.e;
+  const index = trancheDe(trv);
+
+  if (index === -1){
+    $("erreur-titre").textContent = "TRV hors des plages définies";
+    $("erreur-texte").textContent =
+      "Le TRV calculé (" + formater(trv) + " m³/ha) ne correspond à aucune plage du référentiel. " +
+      "Vérifiez les trois mesures saisies.";
+    afficher("erreur");
+    return;
+  }
+
+  const stade = parseInt(selStade.value, 10);
+  const [bMin, bMax] = REGLES.bornes[index];
+  const borneHaute = (bMax >= 9999999) ? "et plus" : "à " + formater(bMax);
+
+  $("trv-valeur").textContent = formater(trv);
+  $("trv-legende").textContent = "Plage de référence : " + formater(bMin) + " " + borneHaute + " m³/ha";
+
+  for (const maladie of ["mildiou","oidium"]){
+    const d = doseDe(stade, maladie, etat[maladie], index);
+    $("dose-" + maladie).textContent = (d === null) ? "—" : d + " %";
+    $("detail-" + maladie).textContent = (d === null)
+      ? "Aucune règle pour cette combinaison"
+      : "Risque " + etat[maladie] + " · " + selStade.options[selStade.selectedIndex].text;
+  }
+  afficher("ok");
+}
+
+["h","l","e"].forEach(id => $(id).addEventListener("input", recalculer));
+selStade.addEventListener("change", recalculer);
+recalculer();
+</script>
+</body>
+</html>
